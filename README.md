@@ -1,10 +1,21 @@
 # PricePing
 
-PricePing tracks the price of any product page you paste in, records every change it observes, and emails you when the price reaches the point you'd actually buy at. It's for online shoppers who don't want to re-check the same page daily — or be sold a "discount" off an inflated list price.
+PricePing tracks product prices from supported product pages you paste in, records every change it observes, and emails you when the price reaches the point you'd actually buy at. It's for online shoppers who don't want to re-check the same page daily — or be sold a "discount" off an inflated list price.
 
 ## Product Preview
 
 ![PricePing landing page](screenshots/landing-page.png)
+
+## Product Screenshots
+
+|                                                     |                                                       |
+| --------------------------------------------------- | ----------------------------------------------------- |
+| ![Add a product](screenshots/add-product.png)       | ![Tracked products](screenshots/tracked-products.png) |
+| Paste any product URL to start tracking             | Tracked products with stock and variant state         |
+| ![Product details](screenshots/product-details.png) | ![Price history](screenshots/price-history.png)       |
+| Extracted product data and lowest-price benchmark   | Observed price changes over time                      |
+| ![Price alerts](screenshots/price-alert.png)        | ![Filters](screenshots/filters.png)                   |
+| Target price and tolerance decide when alerts fire  | Platform, price-range and sort filters                |
 
 **Live demo:** [pingprice.vercel.app](https://pingprice.vercel.app)
 
@@ -24,17 +35,6 @@ PricePing tracks the price of any product page you paste in, records every chang
 - **Scheduled re-checks** — a secured endpoint re-scrapes every product and extends its history.
 - **Dashboard filters** — platform, in-stock, price range; sort by price.
 - **Google sign-in** — each user sees only their own products.
-
-## Product Screenshots
-
-|                                                     |                                                         |
-| --------------------------------------------------- | ------------------------------------------------------- |
-| ![Add a product](screenshots/add-product.png)        | ![Tracked products](screenshots/tracked-products.png)   |
-| Paste any product URL to start tracking             | Tracked products with stock and variant state           |
-| ![Product details](screenshots/product-details.png) | ![Price history](screenshots/price-history.png)         |
-| Extracted product data and lowest-price benchmark   | Observed price changes over time                        |
-| ![Price alerts](screenshots/price-alert.png)         | ![Filters](screenshots/filters.png)                     |
-| Target price and tolerance decide when alerts fire  | Platform, price-range and sort filters                  |
 
 ## Architecture
 
@@ -63,8 +63,6 @@ flowchart TB
     CRON -->|"dropped · in stock · variant<br/>· at or below target + tolerance"| RS
     RS -->|"price-drop email"| U
 ```
-
-**Ingestion.** A URL submitted through a Server Action has its query string stripped, so one product shared with different tracking parameters resolves to one entry.
 
 **Extraction.** Firecrawl renders the page and returns fields matching a JSON schema, name and price required. Missing either, the product is rejected rather than stored half-populated.
 
