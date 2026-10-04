@@ -25,15 +25,20 @@ PricePing tracks product prices from supported product pages you paste in, recor
 
 ## Key Features
 
-- **Track by URL** — paste a product link; no extension, no manual entry.
-- **Automated extraction** — name, price, currency, image, brand, platform, stock, sizes and colours read off the page.
+- **Track by URL** — paste a product link; no extension, no manual entry. Tracking parameters (`utm_*`, `gclid`, `fbclid`) are stripped, and re-adding a product you already track is caught.
+- **Automated extraction** — name, price, currency, brand, platform, category, base colour, stock, sizes, colours, design variants and gallery images read off the page.
+- **Product gallery and variants** — high-resolution image carousel with thumbnails; colour and design variants each with their own thumbnail and price.
+- **Saved preferences** — size and colour choices persist per product, and the alert check uses the saved size.
 - **Price history** — each observed change stored and charted.
 - **Lowest-price benchmark** — the lowest price since tracking began, and how far above it today sits.
 - **Target price + tolerance** — the price you'd buy at, and how close counts as close enough.
 - **Variant-aware alerts** — pick a size; drops only alert if that size is available.
-- **Email alerts** — old price, new price, saving, percentage and a link back.
+- **Email alerts** — old price, new price, saving, percentage and a link back; the chosen size appears in the subject line.
 - **Scheduled re-checks** — a secured endpoint re-scrapes every product and extends its history.
-- **Dashboard filters** — platform, in-stock, price range; sort by price.
+- **Dashboard filters** — platform, in-stock, purchased / not purchased, price range; sort by price or newest first. Every view lives in the URL, so it can be bookmarked and shared.
+- **Purchased tracking** — mark an item as bought without deleting it or its history.
+- **Upcoming Sales calendar** — the major Indian sale events (Big Billion Days, Great Indian Festival, Big Fashion Festival, EORS, Big Bold Sale, Pink Friday and more), split into "Live now" and "Coming up" with day countdowns, so targets can be set before a sale starts.
+- **Interactive product demo** — an animated walkthrough of Paste → Read → Target → Watch → Email, using a fictional store.
 - **Google sign-in** — each user sees only their own products.
 
 ## Architecture
@@ -84,7 +89,7 @@ flowchart TB
 
 **Notifications** — Resend.
 
-**Tooling / Deployment** — ESLint (`next/core-web-vitals`), Vercel, ticketed branch-and-PR workflow.
+**Tooling / Deployment** — ESLint (`next/core-web-vitals`), GitHub Actions CI, Vercel, ticketed branch-and-PR workflow.
 
 ## Technical Decisions
 
@@ -110,15 +115,22 @@ flowchart TB
 
 **Not alerting on the wrong thing** → A drop on an out-of-stock item, or in a size the user doesn't wear, is a false alarm → availability, variant match and target-plus-tolerance act as sequential gates → emails match a purchase the user could actually make.
 
-**Filter bounds derived from live data** → A price slider's range depends on what the user tracks, and raw min/max give unusable bounds → read the true bounds from the database, round outward to human numbers, and treat a handle parked at either end as "no limit" → the filter reads naturally at any price scale without hiding a product that should match.
+**Model-invented image URLs** → The LLM occasionally fabricated plausible-looking image URLs, and pages padded galleries with logos, sprites and duplicate sizes → take gallery URLs from the images the page actually contains, use the extracted list only for labels, filter decorative assets by name, de-duplicate by path ignoring size parameters, cap the gallery at 8, and verify each URL with a HEAD request (4 s timeout; a timeout keeps the image rather than risk a false negative) → galleries show only real product images at a predictable cost.
+
+**Blocked scrapes shouldn't erase data** → A re-check that hits a bot wall returns an empty or partial page → an empty gallery keeps the stored images, colours are filled in only when missing, and variants (which carry their own price and stock) are refreshed every run → a bad scrape never wipes good data.
+
+**Sale countdowns across timezones** → "Ends in 2 days" is wrong if the server's midnight isn't the shopper's → day boundaries are pinned to IST, and dates projected from previous years are labelled "expected" → countdowns are correct wherever the app is hosted.
+
+**Filter bounds derived from live data** → A price slider's range depends on what the user tracks, and raw min/max give unusable bounds → read the true bounds from the database, round outward to human numbers, and treat a handle parked at either end as "no limit"; rounding uses a 1 / 1.5 / 2 / 2.5 / 5 / 7.5 scale (1,847 → 2,000), the step grows with the price span, and values read from the URL are clamped and ordered so shared links stay valid → the filter reads naturally at any price scale without hiding a product that should match.
 
 ## Performance & Reliability
 
 - **Batch isolation** — each product in the scheduled run has its own error boundary, so one failed scrape can't abort the batch; the run reports counts for updated, failed, changed and alerted.
-- **Query shaping** — filters and sort are pushed into the database query, not applied in memory; independent dashboard queries run concurrently.
+- **Query shaping** — filters and sort are pushed into the database query, not applied in memory; independent dashboard queries run concurrently; lowest prices for every product come from one batched query rather than one per product.
 - **Scoped reads** — reads are constrained by owner as well as id, so an unauthorised id redirects instead of returning data.
 - **External API usage** — one scrape per product per add, one per scheduled run; history rows written only on real change.
 - **Loading and empty states** — route progress bar, form spinner, chart loader, and separate empty states for "nothing tracked" and "nothing matches this filter".
+- **Safe destructive actions** — deleting a product goes through a confirmation dialog, and the purchased toggle reads the row back to confirm the write.
 - **Failure surfaces** — extraction failures, duplicates and validation errors render as toasts.
 - **Responsive layout** — mobile-first grids and controls.
 
@@ -131,7 +143,7 @@ Ticketed feature branch (PP-##)
             ↓
 Pull request → review
             ↓
-ESLint · next/core-web-vitals
+GitHub Actions CI · ESLint + production build
             ↓
 Merge to main
             ↓
@@ -140,7 +152,9 @@ Vercel build & deploy
 
 One branch and one pull request per ticket, merged into `main`. Deployment runs on Vercel from the repository, with production tracking `main`. Every credential — extraction key, database keys, email key, scheduler secret — is an environment variable, never committed.
 
-Automated CI checks on pull requests (lint, build, dependency audit, code scanning) and a test suite are not yet in place; linting and builds run locally and at deploy time. Wiring those into GitHub Actions is the next step.
+GitHub Actions runs lint and a production build (Node 22) on every pull request and every push to `main`. A test suite, dependency audit and code scanning are not yet in place. Design docs live in the repository alongside the code.
+
+About 9 months of development, 130+ commits and 65+ merged pull requests.
 
 ## High-Level Project Structure
 
@@ -153,6 +167,9 @@ PricePing
 ├── Alerts                    transactional price-drop email
 ├── Scheduled Processing      secured batch re-check of every tracked product
 ├── Dashboard                 filtering, sorting and product management
+├── Product Detail            gallery, variants, saved size/colour, purchased state
+├── Sales Calendar            upcoming and live sale events with IST countdowns
+├── Demo & Info Pages         animated walkthrough, About, Disclaimer
 ├── Authentication            Google OAuth with per-user data scoping
 └── Database                  Postgres with row-level security
 ```
@@ -164,6 +181,13 @@ PricePing
 - **Work that outlives a request** — recurring processing behind a secured endpoint with per-item error isolation.
 - **Modelling time** — current state kept separate from an append-only series, so history stays queryable and cheap.
 - **Notifications people trust** — intent encoded as thresholds, and no alert that doesn't match a real purchase.
+
+## Roadmap
+
+- **Back-in-stock alerts** — the check is already sketched in the scheduled job.
+- **Dark mode** — design plan written.
+- **Cross-platform price comparison** — the same product across stores.
+- **Best-time-to-buy insights** — predictions drawn from price history.
 
 ---
 
